@@ -20,6 +20,15 @@ DEFAULT_CONFIG = {
     "typing_delay": 1,
     "typing_start_delay": 0.15,
     "ctrl_v_paste": False,  # Use Ctrl+V instead of default Ctrl+Shift+V
+    # When True, non-ASCII text (e.g. Cyrillic) is delivered via clipboard paste
+    # instead of ydotool/xdotool 'type'. Keycode-based typing is layout-dependent
+    # and silently drops keys that don't map under the active keyboard layout.
+    "paste_unicode": True,
+    # When the typer routes text through clipboard paste, snapshot the user's
+    # current clipboard before overwriting and restore it afterwards so the
+    # paste doesn't clobber whatever they had copied.
+    "paste_preserve_clipboard": True,
+    "paste_restore_delay_ms": 200,
     "append_trailing_space": True,
     "verbosity": False,
     "autostart": False,

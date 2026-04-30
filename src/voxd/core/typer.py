@@ -250,6 +250,26 @@ class SimulatedTyper:
         finally:
             os.system('stty icanon echo')  # Restore normal mode
 
+    def will_paste(self, text: str) -> bool:
+        """Return True if `type(text)` would route through clipboard paste
+        instead of ydotool/xdotool key emulation. Call sites use this to skip
+        a preemptive `clipboard.copy(text)`, which would otherwise overwrite
+        the user's clipboard before _paste can save it for later restoration.
+        """
+        if not self.enabled:
+            return False
+        if self.delay_ms <= 0 or not self.tool:
+            return True
+        paste_unicode = True
+        try:
+            if self.cfg is not None:
+                paste_unicode = bool(self.cfg.data.get("paste_unicode", True))
+        except Exception:
+            pass
+        if paste_unicode and any(ord(c) > 127 for c in (text or "")):
+            return True
+        return False
+
     def type(self, text):
         if not self.enabled:
             print("[typer] ⚠️ Typing disabled - required tool not available.")
@@ -257,6 +277,18 @@ class SimulatedTyper:
 
         # If delay ≤ 0, or typing tool is missing, use fast clipboard paste instead of typing
         if self.delay_ms <= 0 or not self.tool:
+            self._paste(text)
+            return
+
+        # ydotool/xdotool emulate physical key events through the current
+        # keyboard layout. Non-ASCII characters (Cyrillic, accents, emoji, …)
+        # whose keysym does not exist under the active layout are silently
+        # dropped, while accidentally-matching keycodes leak through — this
+        # is the classic "Russian text comes out as scattered noise" bug.
+        # Route such text through the clipboard (Ctrl+(Shift+)V), which is
+        # layout-independent.
+        if self.will_paste(text):
+            verbo("[typer] Non-ASCII detected → using clipboard paste instead of key emulation.")
             self._paste(text)
             return
 
@@ -292,15 +324,44 @@ class SimulatedTyper:
     # Helper: fast clipboard paste
     # ------------------------------------------------------------------
     def _paste(self, text: str):
-        """Copy *text* to clipboard and use Ctrl+Shift+V (default) or Ctrl+V (when enabled)"""
-        # Copy to clipboard first
+        """Copy *text* to clipboard and trigger Ctrl+Shift+V (default) or Ctrl+V.
+
+        When ``paste_preserve_clipboard`` is enabled (default) we read the
+        clipboard first, paste the transcript, then write the saved value
+        back after ``paste_restore_delay_ms``. Call sites must avoid copying
+        the transcript before ``type()`` (see ``will_paste``) — otherwise
+        the value we save here would already be the transcript itself.
+        """
+        # Normalise transcript (rstrip + optional trailing space)
+        t = text.rstrip()
         try:
-            t = text.rstrip()
+            if self.cfg and bool(self.cfg.data.get("append_trailing_space", True)):
+                t = t + " "
+        except Exception:
+            pass
+
+        # Read config knobs for clipboard preservation
+        preserve = True
+        restore_delay_ms = 200
+        try:
+            if self.cfg is not None:
+                preserve = bool(self.cfg.data.get("paste_preserve_clipboard", True))
+                restore_delay_ms = int(self.cfg.data.get("paste_restore_delay_ms", 200))
+        except Exception:
+            pass
+
+        # Snapshot original clipboard before we overwrite it.
+        saved_clip = None
+        if preserve:
             try:
-                if self.cfg and bool(self.cfg.data.get("append_trailing_space", True)):
-                    t = t + " "
-            except Exception:
-                pass
+                saved_clip = pyperclip.paste()
+                verbo(f"[typer] Saved clipboard ({len(saved_clip)} chars) for restore after paste.")
+            except Exception as e:
+                verbo(f"[typer] Could not read clipboard for restore: {e}")
+                saved_clip = None
+
+        # Copy transcript to clipboard
+        try:
             pyperclip.copy(t)
         except Exception as e:
             verbo(f"[typer] Clipboard copy failed: {e} – falling back to typing mode.")
@@ -315,12 +376,13 @@ class SimulatedTyper:
         # Determine paste shortcut: Check config for real-time updates
         use_ctrl_v = self.cfg and self.cfg.data.get("ctrl_v_paste", False)
         paste_keys = "ctrl+v" if use_ctrl_v else "ctrl+shift+v"
-        
+
         verbo(f"[typer] Pasting transcript via {self.tool} using {paste_keys}...")
 
+        paste_ok = False
         try:
             tool_name = os.path.basename(self.tool) if self.tool else ""
-            
+
             if "xdotool" in tool_name:
                 subprocess.run(
                     ["xdotool", "key", "--clearmodifiers", paste_keys],
@@ -328,6 +390,7 @@ class SimulatedTyper:
                     stderr=subprocess.DEVNULL,
                     timeout=5
                 )
+                paste_ok = True
             elif "ydotool" in tool_name:
                 if use_ctrl_v:
                     # Ctrl+V: Ctrl(29) + V(47)
@@ -339,15 +402,27 @@ class SimulatedTyper:
                     subprocess.run(["ydotool", "key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                    timeout=5)
+                paste_ok = True
             else:
                 print(f"[typer] ⚠️ Paste shortcut not supported for tool: {self.tool}")
                 self._type_char_by_char(text)
                 return
-                
+
         except subprocess.TimeoutExpired:
             print("[typer] ⚠️ Paste operation timed out")
         except Exception as e:
             print(f"[typer] ⚠️ Paste operation failed: {e}")
+
+        # Restore the original clipboard so the user's prior contents are not lost.
+        # Skip restoration if save failed, was empty, or equalled the transcript
+        # (the caller may have pre-copied — there is nothing useful to restore).
+        if preserve and paste_ok and saved_clip and saved_clip != t:
+            time.sleep(max(0.05, restore_delay_ms / 1000.0))
+            try:
+                pyperclip.copy(saved_clip)
+                verbo("[typer] Clipboard restored.")
+            except Exception as e:
+                verbo(f"[typer] Clipboard restore failed: {e}")
 
         self.flush_stdin()
 

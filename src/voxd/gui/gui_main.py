@@ -323,7 +323,7 @@ class VoxdApp(QWidget):
             layout.setSpacing(5)
             layout.addWidget(btn)
             label = QLabel(text)
-            label.setStyleSheet("font-size: 9pt;")
+            label.setStyleSheet("font-size: 9pt; color: white; background-color: transparent;")
             layout.addWidget(label)
             container.checkbox_button = btn  # type: ignore[attr-defined]
             container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)

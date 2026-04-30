@@ -60,6 +60,12 @@ class ModelManager(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Manage Whisper Models")
         self.setMinimumWidth(600)
+        from voxd.core.voxd_core import DARK_DIALOG_QSS
+        self.setStyleSheet(DARK_DIALOG_QSS + """
+            QTableWidget { background-color: #1e1e1e; color: white; gridline-color: #444; }
+            QHeaderView::section { background-color: #3a3a3a; color: white; border: 1px solid #555; padding: 4px; }
+            QTableWidget::item:selected { background-color: #FF4500; color: white; }
+        """)
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, 4)
@@ -76,6 +82,7 @@ class ModelManager(QDialog):
         self.table.setRowCount(0)
         active_path = Path(_CFG.data.get("whisper_model_path", "")).name
         local_set = set(mdl.list_local())
+        catalogue_fnames = {f"ggml-{k}.bin" for k in mdl.CATALOGUE.keys()}
 
         for key, (size_mb, *_rest) in mdl.CATALOGUE.items():
             row = self.table.rowCount()
@@ -106,19 +113,43 @@ class ModelManager(QDialog):
                 cell_widget = self._make_download_action(key)
 
             self.table.setCellWidget(row, self.COL_ACTION, cell_widget)
-
-            # Visual tweaks -------------------------------------------
             if status == "Active":
-                for col in range(0, 4):
-                    item = self.table.item(row, col)
-                    if item:
-                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                        item.setForeground(Qt.GlobalColor.darkGreen)
-                        font = item.font()
-                        font.setBold(True)
-                        item.setFont(font)
+                self._mark_active_row(row)
+
+        # Custom local models (dropped into the models dir, not in CATALOGUE) ──
+        for fname in sorted(local_set - catalogue_fnames):
+            path = mdl.CACHE_DIR / fname
+            try:
+                size_mb = max(1, path.stat().st_size // (1024 * 1024))
+            except OSError:
+                size_mb = 0
+
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, self.COL_NAME, QTableWidgetItem(fname))
+            self.table.setItem(row, self.COL_SIZE, QTableWidgetItem(f"{size_mb} MB"))
+
+            is_active = (fname == active_path)
+            self.table.setItem(
+                row, self.COL_STATUS,
+                QTableWidgetItem("Active (custom)" if is_active else "Custom"),
+            )
+            cell_widget = QWidget() if is_active else self._make_custom_actions(fname)
+            self.table.setCellWidget(row, self.COL_ACTION, cell_widget)
+            if is_active:
+                self._mark_active_row(row)
 
         self.table.resizeColumnsToContents()
+
+    def _mark_active_row(self, row: int):
+        for col in range(0, 4):
+            item = self.table.item(row, col)
+            if item:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                item.setForeground(Qt.GlobalColor.darkGreen)
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
 
     # ------------------------------------------------------------------
     def _make_installed_actions(self, key: str) -> QWidget:
@@ -146,6 +177,20 @@ class ModelManager(QDialog):
         btn_dl.clicked.connect(lambda _=False, k=key: self._start_download(k, w))
         return w
 
+    def _make_custom_actions(self, fname: str) -> QWidget:
+        w = QWidget()
+        hl = QHBoxLayout(w)
+        hl.setContentsMargins(0, 0, 0, 0)
+
+        btn_activate = QPushButton("Activate")
+        btn_remove = QPushButton("Remove")
+        hl.addWidget(btn_activate)
+        hl.addWidget(btn_remove)
+
+        btn_activate.clicked.connect(lambda _=False, f=fname: self._on_activate_custom(f))
+        btn_remove.clicked.connect(lambda _=False, f=fname: self._on_remove_custom(f))
+        return w
+
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
@@ -157,6 +202,30 @@ class ModelManager(QDialog):
     def _on_remove(self, key: str):
         mdl.remove(key)
         if Path(_CFG.data.get("whisper_model_path", "")).name == f"ggml-{key}.bin":
+            _CFG.set("whisper_model_path", "")
+            _CFG.save()
+        self._populate()
+
+    def _on_activate_custom(self, fname: str):
+        path = mdl.CACHE_DIR / fname
+        if not path.exists():
+            QMessageBox.warning(self, "Activate failed", f"File not found:\n{path}")
+            self._populate()
+            return
+        _CFG.set("whisper_model_path", str(path.resolve()))
+        _CFG.save()
+        _CFG.load()  # re-resolve paths and broadcast to running components
+        self._populate()
+
+    def _on_remove_custom(self, fname: str):
+        path = mdl.CACHE_DIR / fname
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError as e:
+                QMessageBox.warning(self, "Remove failed", str(e))
+                return
+        if Path(_CFG.data.get("whisper_model_path", "")).name == fname:
             _CFG.set("whisper_model_path", "")
             _CFG.save()
         self._populate()

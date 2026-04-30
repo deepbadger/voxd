@@ -12,6 +12,65 @@ from voxd.core.model_manager import show_model_manager
 from voxd.core.transcriber import WhisperTranscriber  # type: ignore
 from voxd.utils.languages import search_languages, code_to_name, normalize_lang_code, is_valid_lang
 
+
+# Shared dark theme stylesheet for dialogs.
+# Applied at QDialog level so descendants (labels, inputs, dropdowns) inherit
+# explicit colors instead of falling back to the system palette, which on some
+# desktop themes renders dark text on dark backgrounds (i.e. invisible).
+DARK_DIALOG_QSS = """
+QDialog, QWidget#voxdDialogContent {
+    background-color: #2e2e2e;
+    color: white;
+}
+QLabel, QCheckBox, QRadioButton, QGroupBox {
+    color: white;
+    background-color: transparent;
+}
+QGroupBox {
+    border: 1px solid #555;
+    border-radius: 4px;
+    margin-top: 8px;
+    padding-top: 6px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 8px;
+    padding: 0 4px;
+}
+QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    background-color: #1e1e1e;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 2px 4px;
+    selection-background-color: #FF4500;
+    selection-color: white;
+}
+QComboBox QAbstractItemView {
+    background-color: #1e1e1e;
+    color: white;
+    selection-background-color: #FF4500;
+    selection-color: white;
+}
+QPushButton {
+    background-color: #444;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 10px;
+}
+QPushButton:hover {
+    background-color: #555;
+}
+QPushButton:pressed {
+    background-color: #333;
+}
+QScrollArea, QScrollArea > QWidget > QWidget {
+    background-color: #2e2e2e;
+    color: white;
+}
+"""
+
 class CoreProcessThread(QThread):
     finished = pyqtSignal(str)
     status_changed = pyqtSignal(str)
@@ -98,11 +157,12 @@ class CoreProcessThread(QThread):
         except Exception:
             pass  # logging failures should never crash the thread
 
-        # Copy to clipboard unless typing is enabled with paste mode (delay <= 0)
-        # to avoid double-copying to clipboard
-        typing_will_paste = (self.cfg.typing and 
-                           self.cfg.typing_delay <= 0)
-        
+        # Copy to clipboard unless the typer is going to route the text
+        # through a paste shortcut (delay <= 0 OR non-ASCII auto-paste). In
+        # those cases _paste needs to read & restore the user's clipboard,
+        # so we must NOT pre-overwrite it with the transcript here.
+        typing_will_paste = self.cfg.typing and typer.will_paste(final_text or "")
+
         if not typing_will_paste and final_text:
             clipboard.copy(final_text)
 
@@ -156,7 +216,7 @@ def show_options_dialog(parent, logger, cfg=None, modal=True, hide_aipp=False):
         cfg = get_config()
     dialog = QDialog(parent)
     dialog.setWindowTitle("Options")
-    dialog.setStyleSheet("background-color: #2e2e2e; color: white;")
+    dialog.setStyleSheet(DARK_DIALOG_QSS)
     # Let the dialog width adapt automatically to its contents.
     # We'll rely on the layout's fixed-size constraint after we know
     # the natural size of the widest button.
@@ -178,7 +238,7 @@ def show_options_dialog(parent, logger, cfg=None, modal=True, hide_aipp=False):
         log_view = QDialog(dialog)
         log_view.setWindowTitle("Session Log")
         log_view.setMinimumSize(600, 400)
-        log_view.setStyleSheet("background-color: #2e2e2e; color: white;")
+        log_view.setStyleSheet(DARK_DIALOG_QSS)
 
         vbox = QVBoxLayout(log_view)
 
@@ -258,6 +318,7 @@ def show_config_editor(parent, config_path, after_save_cb=None):
     dlg = QDialog(parent)
     dlg.setWindowTitle("Edit Config")
     dlg.setMinimumSize(600, 400)
+    dlg.setStyleSheet(DARK_DIALOG_QSS)
     layout = QVBoxLayout(dlg)
 
     # Load config file
@@ -321,6 +382,7 @@ def show_manage_prompts(parent, cfg, after_save_cb=None, modal=True):
     dlg = QDialog(parent)
     dlg.setWindowTitle("Manage AIPP Prompts")
     dlg.setMinimumWidth(300)
+    dlg.setStyleSheet(DARK_DIALOG_QSS)
 
     grid = QGridLayout(dlg)
 
@@ -409,7 +471,7 @@ def session_log_dialog(parent, logger):
     log_view = QDialog(parent)
     log_view.setWindowTitle("Session Log")
     log_view.setMinimumSize(600, 400)
-    log_view.setStyleSheet("background-color: #2e2e2e; color: white;")
+    log_view.setStyleSheet(DARK_DIALOG_QSS)
 
     vbox = QVBoxLayout(log_view)
 
@@ -450,7 +512,7 @@ def show_performance_dialog(parent, cfg):
     dlg = QDialog(parent)
     dlg.setWindowTitle("Performance")
     dlg.setMinimumWidth(500)
-    dlg.setStyleSheet("background-color: #2e2e2e; color: white;")
+    dlg.setStyleSheet(DARK_DIALOG_QSS)
 
     vbox = QVBoxLayout(dlg)
 
@@ -566,6 +628,7 @@ def show_language_dialog(parent, cfg, modal=True):
     dlg = QDialog(parent)
     dlg.setWindowTitle("Language")
     dlg.setMinimumWidth(320)
+    dlg.setStyleSheet(DARK_DIALOG_QSS)
     layout = QVBoxLayout(dlg)
 
     search = QLineEdit()
@@ -633,7 +696,7 @@ def show_aipp_dialog(parent, cfg, modal=True):
     dlg = QDialog(parent)
     dlg.setWindowTitle("AI Post-Processing")
     dlg.setMinimumWidth(300)
-    dlg.setStyleSheet("background-color: #2e2e2e; color: white;")
+    dlg.setStyleSheet(DARK_DIALOG_QSS)
 
     layout = QVBoxLayout(dlg)
 

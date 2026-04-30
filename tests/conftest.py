@@ -110,10 +110,14 @@ def stub_pyperclip(monkeypatch):
     class _PyperclipException(Exception):
         pass
     pc.PyperclipException = _PyperclipException
-    store = {"last": None}
+    store = {"last": ""}
     def copy(text):
         store["last"] = text
+    def paste():
+        return store["last"]
     pc.copy = copy
+    pc.paste = paste
+    pc._store = store  # type: ignore[attr-defined]  # exposed for tests
     monkeypatch.setitem(sys.modules, "pyperclip", pc)
     yield
 

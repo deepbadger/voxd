@@ -186,3 +186,6 @@ cython_debug/
 # any whisper.cpp build cache
 .whisper.cpp/
 **/whisper.cpp/build/
+/CLAUDE.md
+/.claude/
+.idea

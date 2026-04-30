@@ -124,7 +124,7 @@ def cli_main(cfg: AppConfig, logger: SessionLogger, args: argparse.Namespace):
                 language=cfg.data.get("language", "en"),
             )
             clipboard = ClipboardManager()
-            typer = SimulatedTyper(delay=cfg.typing_delay, start_delay=cfg.typing_start_delay)
+            typer = SimulatedTyper(delay=cfg.typing_delay, start_delay=cfg.typing_start_delay, cfg=cfg)
 
             try:
                 while True:
@@ -147,7 +147,10 @@ def cli_main(cfg: AppConfig, logger: SessionLogger, args: argparse.Namespace):
                         continue
 
                     final_text = get_final_text(tscript, cfg)  # type: ignore[arg-type]
-                    clipboard.copy(final_text)
+                    # Skip pre-copying when typer will route through paste —
+                    # _paste needs to snapshot the user's clipboard first.
+                    if not (cfg.typing and typer.will_paste(final_text or "")):
+                        clipboard.copy(final_text)
                     print(f"\n📝 ---> ")
                     if cfg.typing:
                         typer.type(final_text)
@@ -279,7 +282,7 @@ def main():
                 language=cfg.data.get("language", "en"),
             )
             clipboard = ClipboardManager()
-            typer = SimulatedTyper(delay=cfg.typing_delay, start_delay=cfg.typing_start_delay)
+            typer = SimulatedTyper(delay=cfg.typing_delay, start_delay=cfg.typing_start_delay, cfg=cfg)
             try:
                 while True:
                     verbo("\n[cli] Awaiting hotkey to start recording...")
@@ -296,7 +299,10 @@ def main():
                         print("[cli] No transcript returned.")
                         continue
                     final_text = get_final_text(tscript, cfg)  # type: ignore[arg-type]
-                    clipboard.copy(final_text)
+                    # Skip pre-copying when typer will route through paste —
+                    # _paste needs to snapshot the user's clipboard first.
+                    if not (cfg.typing and typer.will_paste(final_text or "")):
+                        clipboard.copy(final_text)
                     if cfg.typing:
                         typer.type(final_text)
                     print(f"\n📝 ---> {final_text}")

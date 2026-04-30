@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from voxd.core.config import AppConfig
+from voxd.core.voxd_core import DARK_DIALOG_QSS
 
 
 class SettingsDialog(QDialog):
@@ -43,6 +44,7 @@ class SettingsDialog(QDialog):
     def __init__(self, cfg: AppConfig, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
+        self.setStyleSheet(DARK_DIALOG_QSS)
         self.cfg = cfg
         # Let the dialog size adapt naturally to its contents;
         # scroll-area will provide overflow protection.
