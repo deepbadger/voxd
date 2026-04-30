@@ -97,6 +97,17 @@ cd voxd && ./setup.sh
 
 Setup is non-interactive with minimal console output; a detailed setup log is saved in the repo directory (e.g. `2025-09-18-setup-log.txt`).
 
+#### Or via Python sdist (`voxd-<version>.tar.gz` from a release)
+
+Each GitHub release also publishes a Python source distribution that can be installed straight with `pip` (or `pipx`) — useful when you want to manage VOXD inside an existing Python environment instead of via a system package:
+
+```bash
+# Pick a release at https://github.com/jakovius/voxd/releases
+pipx install ./voxd-1.4.1.tar.gz     # or:  pip install ./voxd-1.4.1.tar.gz
+```
+
+This installs only the Python side; you still need `whisper-cli` (built by `setup.sh`, or VOXD will offer to build it on first run) and the system tools (ydotool/xclip/wl-clipboard/...) listed in the package dependencies.
+
 **Reboot** the system!  
 (unless on an X11 system; on most modern systems there is Wayland, so **ydotool** is required for typing and needs rebooting for user setup).  
 
@@ -226,12 +237,44 @@ Models for download (size MB):
 | large-v3-turbo-q5_0 | 547 | ggml-large-v3-turbo-q5_0.bin |
 | large-v3-turbo-q8_0 | 834 | ggml-large-v3-turbo-q8_0.bin |
 
+#### Custom / HuggingFace models
+
+Anything that is a valid `whisper.cpp` GGML file (`ggml-<name>.bin`) and lives in `~/.local/share/voxd/models/` is auto-detected:
+- The CLI is silent about it, but the **GUI Model Manager** lists every such file at the bottom of the table with status `Custom` and the usual *Activate* / *Remove* buttons.
+- `voxd-model use` only knows the curated catalogue; for custom files use the GUI, or set `whisper_model_path` directly in `~/.config/voxd/config.yaml`.
+
+For HuggingFace checkpoints (PyTorch / safetensors — e.g. fine-tuned models like `antony66/whisper-large-v3-russian`) there is a converter helper at the repo root:
+
+```bash
+./add-hf-model.sh <hf-repo> <local-name> [--quantize q5_0|q8_0]
+
+# example: convert a Russian-fine-tuned large-v3 and quantize to q5_0
+./add-hf-model.sh antony66/whisper-large-v3-russian large-v3-ru --quantize q5_0
+```
+
+The script clones the HF checkpoint (needs `git-lfs`), runs `whisper.cpp/models/convert-h5-to-ggml.py` against it, optionally quantizes, and drops the result into the models dir. After it finishes, open *Whisper Models* in the GUI → click *Activate* on the new row, and don't forget to switch the language (e.g. `language: ru` for the example above) — single-language fine-tunes need the matching `language` setting, otherwise transcription quality drops.
+
+Requirements: `.venv` populated (run `./dev-gui.sh --no-run` once), `whisper.cpp` built (`./setup.sh`), `git-lfs` installed, and ~10–12 GB free RAM for `large-v3` conversion.
+
 ---
 
 ## ⚙️ User Config
 
 Available in GUI and TRAY modes ("Settings"), but directly here:
 `~/.config/voxd/config.yaml`
+
+A few keys worth knowing about:
+
+| Key | Default | What it does |
+|---|---|---|
+| `language` | `en` | Whisper language code (`auto`, `ru`, `de`, …). Single-language fine-tunes need this set explicitly. |
+| `typing` | `true` | Type the transcript into the focused window via ydotool/xdotool. |
+| `typing_delay` | `1` | Per-character delay (ms) for keystroke emulation. `0` triggers paste mode (Ctrl+(Shift+)V) instead. |
+| `paste_unicode` | `true` | When the transcript contains any non-ASCII (Cyrillic, accents, emoji, …) route it through the clipboard automatically. ydotool/xdotool typing depends on the active keyboard layout and silently drops keys that have no keysym for the current layout — so without this, e.g. Russian text comes out as scattered noise. |
+| `paste_preserve_clipboard` | `true` | Snapshot the user's clipboard before paste-mode replaces it with the transcript, and restore it after `paste_restore_delay_ms`. Trade-off: the transcript no longer lingers in the clipboard for manual re-paste. Set to `false` to keep the old behaviour. |
+| `paste_restore_delay_ms` | `200` | Pause between sending the paste shortcut and restoring the clipboard. Increase if the focused window is slow to consume Ctrl+V (remote sessions, heavy editors). |
+| `ctrl_v_paste` | `false` | Use plain `Ctrl+V` instead of the default `Ctrl+Shift+V` for paste mode (some terminals and IDEs need the former). |
+| `mic_autoset_enabled` | `true` | Best-effort: unmute the default mic and set its level to `mic_autoset_level` via wpctl/pactl/amixer at startup. Helps avoid clipping. |
 
 ---
 
@@ -345,6 +388,9 @@ Note: As one may expect, the app is not completely immune to very noisy environm
 | *"whisper-cli not found"*          | Build failed - rerun `./setup.sh` and check any diagnostic output.                                                      |
 | *Mic not recording*                | Verify in system settings: **input device available**? / **active**? / **not muted**?                                        |
 | Clipboard empty                    | ensure `xclip` or `wl-copy`  present (re-run `setup.sh`).                                |
+| *Non-ASCII (Cyrillic, accents, emoji) types as garbage like `   -б  б    ю`* | ydotool/xdotool emulate physical keystrokes via the active keyboard layout, which silently drops keys with no keysym. VOXD ≥ this revision auto-routes such text through the clipboard (`paste_unicode: true`). If you somehow turned it off, re-enable it in `~/.config/voxd/config.yaml`. |
+| *Paste shortcut goes nowhere*      | The focused app may want plain `Ctrl+V` instead of `Ctrl+Shift+V` — set `ctrl_v_paste: true`.                |
+| *Clipboard ends up containing the transcript instead of what I had copied* | Set `paste_preserve_clipboard: true` (default since this revision) — VOXD snapshots and restores your clipboard around paste. Increase `paste_restore_delay_ms` if a slow editor still loses content. |
 
 ### Audio troubleshooting
 
@@ -362,6 +408,32 @@ audio_input_device: "pulse"   # or a specific device name or index
   - Arch: `sudo pacman -S alsa-plugins pipewire-pulse pavucontrol`
 
 - If 16 kHz fails on ALSA: VOXD will retry with the device default rate and with `pulse` when available.
+
+---
+
+## 🛠 Development
+
+The full `./setup.sh` is the canonical install (system deps + venv + `whisper.cpp` + ydotool wiring). For a lightweight loop where you only need the Python side and a working GUI/CLI, two helpers live at the repo root:
+
+```bash
+./dev-gui.sh                 # (re)create .venv, editable-install voxd, launch --gui
+./dev-gui.sh --rebuild       # nuke and recreate .venv (use after distro upgrades break it)
+./dev-gui.sh --no-run        # only set up the venv
+./dev-gui.sh -- --tray       # forward args to voxd (here: launch tray instead)
+
+./add-hf-model.sh <hf-repo> <local-name> [--quantize q5_0|q8_0]
+                             # convert a HuggingFace Whisper checkpoint to GGML
+                             # and drop it into ~/.local/share/voxd/models/
+```
+
+`dev-gui.sh` does **not** build `whisper.cpp` or install system tools — for that, run `./setup.sh` once. On first launch the GUI will offer to build `whisper-cli` if it can't find one. The script auto-detects a broken `.venv` (e.g. dangling symlinks left by an old `uv` install) and rebuilds it.
+
+Tests use isolated XDG dirs and stubbed audio/clipboard backends:
+
+```bash
+.venv/bin/python -m pytest          # full suite
+.venv/bin/python -m pytest -k typer # only the typer tests
+```
 
 ---
 
