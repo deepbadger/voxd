@@ -1,0 +1,124 @@
+name: gigachat-wheels-bundle
+
+# Собирает оффлайн-bundle колёс langchain-gigachat и его транзитивных
+# зависимостей под все поддерживаемые (Python × arch) комбинации
+# Gentoo-ебилда. Загружает архив voxd-<version>-gigachat-wheels.tar.gz
+# в GitHub-релиз — оттуда его забирает SRC_URI ебилда при USE=gigachat.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag with v-prefix (e.g. v1.7.0+mir.1)"
+        required: true
+      langchain_gigachat_spec:
+        description: "Версия langchain-gigachat для pip"
+        required: false
+        default: "langchain-gigachat>=0.5,<0.6"
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    name: Download wheels (py${{ matrix.python }} ${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Resolve spec
+        id: spec
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "value=langchain-gigachat>=0.5,<0.6" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.inputs.langchain_gigachat_spec }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: pip download
+        env:
+          SPEC: ${{ steps.spec.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p wheels
+          python -m pip install --upgrade pip
+          PYTAG="${{ matrix.python }}"
+          PYTAG="${PYTAG//./}"
+          # --abi cpXXX подбирает CPython-специфичные wheels;
+          # --abi abi3 — стабильный ABI; --abi none — pure-Python.
+          python -m pip download \
+            --dest wheels \
+            --only-binary=:all: \
+            --python-version "${{ matrix.python }}" \
+            --platform "manylinux_2_28_${{ matrix.arch }}" \
+            --platform "manylinux2014_${{ matrix.arch }}" \
+            --platform "manylinux_2_17_${{ matrix.arch }}" \
+            --implementation cp \
+            --abi "cp${PYTAG}" \
+            --abi abi3 \
+            --abi none \
+            "${SPEC}"
+          ls -1 wheels
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-py${{ matrix.python }}-${{ matrix.arch }}
+          path: wheels/
+          retention-days: 1
+
+  bundle:
+    name: Pack and upload
+    needs: download
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Resolve tag/version
+        id: meta
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Merge and tar
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p wheels
+          # cp -n дедуплицирует pure-Python колёса, попавшие в несколько артефактов.
+          find artifacts -name '*.whl' -exec cp -n {} wheels/ \;
+          ls -1 wheels | sort > wheels/MANIFEST.txt
+          echo "Bundle contents:"
+          cat wheels/MANIFEST.txt
+          # Bundle-имя выровнено с SRC_URI ебилда.
+          tar czf "voxd-${VERSION}-gigachat-wheels.tar.gz" wheels
+          ls -la voxd-*-gigachat-wheels.tar.gz
+          sha512sum voxd-*-gigachat-wheels.tar.gz
+          b2sum  voxd-*-gigachat-wheels.tar.gz
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          files: voxd-*-gigachat-wheels.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

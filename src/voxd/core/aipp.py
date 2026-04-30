@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import sys
 import time
 from voxd.utils.libw import verbo, verr
 from pathlib import Path
@@ -37,6 +38,8 @@ def run_aipp(text: str, cfg, prompt_key: str = None) -> str:
                 return run_anthropic_aipp(full_prompt, model)
             elif provider == "xai":
                 return run_xai_aipp(full_prompt, model)
+            elif provider == "gigachat":
+                return run_gigachat_aipp(full_prompt, model)
             else:
                 verr(f"[aipp] Unsupported provider: {provider}")
                 return text
@@ -147,6 +150,61 @@ def run_llamacpp_server_aipp(prompt: str, model: str = "gemma-3-270m") -> str:
 
 
 ## llamacpp_direct support removed
+
+
+_gigachat_clients: dict[tuple, object] = {}
+
+
+def run_gigachat_aipp(prompt: str, model: str = "GigaChat-2-Max") -> str:
+    """
+    Sber GigaChat via langchain-gigachat. The GigaChat client owns its OAuth
+    access-token lifecycle (auto-refresh on expiry), so we cache one client
+    per (model, scope, verify_ssl) tuple to avoid re-issuing tokens every call.
+
+    Requires `langchain-gigachat` (install via `pip install voxd[gigachat]`)
+    and the GIGACHAT_CREDENTIALS env var (base64 client_id:secret).
+    """
+    creds = os.getenv("GIGACHAT_CREDENTIALS", "")
+    if not creds:
+        raise RuntimeError("GIGACHAT_CREDENTIALS not set in environment")
+
+    from voxd.core.config import get_config
+    cfg = get_config()
+    scope = cfg.data.get("gigachat_scope", "GIGACHAT_API_PERS")
+    verify_ssl = bool(cfg.data.get("gigachat_verify_ssl", True))
+
+    key = (model, scope, verify_ssl, creds)
+    client = _gigachat_clients.get(key)
+    if client is None:
+        # Distro-пакеты могут поставлять langchain-gigachat и его deps в
+        # обособленный site-packages (например, /opt/voxd/aipp/gigachat),
+        # чтобы pydantic/httpx-стек не попадали в системный Python.
+        # Подтягиваем такой каталог в sys.path только перед импортом, а не
+        # при загрузке модуля — это гарантирует, что общие зависимости
+        # (requests и т.п.) уже импортированы из системы и не будут
+        # затенены bundled-версией.
+        _bundle_sp = os.environ.get(
+            "VOXD_GIGACHAT_SITE_PACKAGES",
+            "/opt/voxd/aipp/gigachat/site-packages",
+        )
+        if _bundle_sp and os.path.isdir(_bundle_sp) and _bundle_sp not in sys.path:
+            sys.path.insert(0, _bundle_sp)
+        try:
+            from langchain_gigachat.chat_models import GigaChat
+        except ImportError as e:
+            raise RuntimeError(
+                "langchain-gigachat is not installed. "
+                "Install with: pip install voxd[gigachat]"
+            ) from e
+        kwargs = dict(credentials=creds, scope=scope, verify_ssl_certs=verify_ssl)
+        if model:
+            kwargs["model"] = model
+        client = GigaChat(**kwargs)
+        _gigachat_clients[key] = client
+
+    result = client.invoke(prompt)
+    content = getattr(result, "content", result)
+    return content.strip() if isinstance(content, str) else str(content).strip()
 
 
 def get_final_text(transcript: str, cfg) -> str:
