@@ -65,6 +65,7 @@ aipp_models:
   openai: ["gpt-4o-mini-2024-07-18"]
   anthropic: ["claude-3-opus-20240229", "claude-3-haiku"]
   xai: ["grok-3-latest"]
+  gigachat: ["GigaChat-2-Max", "GigaChat-2-Pro", "GigaChat-2", "GigaChat"]
 
 # Selected model per provider
 aipp_selected_models:
@@ -73,6 +74,11 @@ aipp_selected_models:
   openai: "gpt-4o-mini-2024-07-18"
   anthropic: "claude-3-opus-20240229"
   xai: "grok-3-latest"
+  gigachat: "GigaChat-2-Max"
+
+# GigaChat (Sber) settings
+gigachat_scope: GIGACHAT_API_PERS    # or GIGACHAT_API_CORP
+gigachat_verify_ssl: true            # set false if Russian Trusted Root CA is missing
 
 # llama.cpp settings
 llamacpp_server_path: "llama.cpp/build/bin/llama-server"

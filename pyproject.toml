@@ -21,6 +21,9 @@ dependencies = [
   "pyqtgraph>=0.13"
 ]
 
+[project.optional-dependencies]
+gigachat = ["langchain-gigachat>=0.3"]
+
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -87,7 +87,7 @@ DEFAULT_CONFIG = {
 
     # --- ✨ AIPP (AI post-processing) ------------------------------------------
     "aipp_enabled": False,
-    "aipp_provider": "llamacpp_server",           # ollama / openai / anthropic / xai / llamacpp_server
+    "aipp_provider": "llamacpp_server",           # ollama / openai / anthropic / xai / gigachat / llamacpp_server
     "aipp_active_prompt": "default",
 
     # New: List of models per provider
@@ -96,7 +96,8 @@ DEFAULT_CONFIG = {
         "ollama": ["llama3.2:latest", "mistral:latest", "gemma3:latest", "qwen2.5-coder:1.5b"],
         "openai": ["gpt-4o-mini-2024-07-18"],
         "anthropic": ["claude-3-opus-20240229", "claude-3-haiku"],
-        "xai": ["grok-3-latest"]
+        "xai": ["grok-3-latest"],
+        "gigachat": ["GigaChat-2-Max", "GigaChat-2-Pro", "GigaChat-2", "GigaChat"]
     },
 
     # New: Selected model per provider
@@ -105,8 +106,13 @@ DEFAULT_CONFIG = {
         "ollama": "gemma3:latest",
         "openai": "gpt-4o-mini-2024-07-18",
         "anthropic": "claude-3-opus-20240229",
-        "xai": "grok-3-latest"
+        "xai": "grok-3-latest",
+        "gigachat": "GigaChat-2-Max"
     },
+
+    # GigaChat (Sber) settings
+    "gigachat_scope": "GIGACHAT_API_PERS",         # GIGACHAT_API_PERS | GIGACHAT_API_CORP
+    "gigachat_verify_ssl": True,                   # set False if Russian Trusted Root CA is missing
 
     # llama.cpp settings
     "llamacpp_server_path": "llama.cpp/build/bin/llama-server",
@@ -239,7 +245,7 @@ class AppConfig:
         check_file(self.whisper_model_path, "Model file")
         check_file(self.whisper_binary, "Whisper binary")
 
-        if self.aipp_provider not in ("ollama", "openai", "anthropic", "xai"):
+        if self.aipp_provider not in ("ollama", "openai", "anthropic", "xai", "gigachat", "llamacpp_server"):
             print(f"  ⚠️ Invalid AIPP provider: {self.aipp_provider}")
 
         # typing_delay: allow 0 (→ instant paste) up to 1 s per char
@@ -258,6 +264,8 @@ class AppConfig:
             print("  ⚠️ ANTHROPIC_API_KEY not set in environment.")
         if self.aipp_provider == "xai" and not os.getenv("XAI_API_KEY"):
             print("  ⚠️ XAI_API_KEY not set in environment.")
+        if self.aipp_provider == "gigachat" and not os.getenv("GIGACHAT_CREDENTIALS"):
+            print("  ⚠️ GIGACHAT_CREDENTIALS not set in environment.")
 
         # Validate llama.cpp setup
         if self.aipp_provider in ("llamacpp_server",):
@@ -357,7 +365,7 @@ class AppConfig:
             print(f"\n[config] Invalid aipp_active_prompt '{active}', resetting to 'default'")
             self.data["aipp_active_prompt"] = "default"
 
-        valid_providers = ["ollama", "openai", "anthropic", "xai", "llamacpp_server"]
+        valid_providers = ["ollama", "openai", "anthropic", "xai", "llamacpp_server", "gigachat"]
         provider = self.data.get("aipp_provider", "ollama")
         if provider not in valid_providers:
             print(f"\n[config] Invalid aipp_provider '{provider}', resetting to 'ollama'")

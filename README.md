@@ -85,6 +85,23 @@ sudo zypper refresh
 sudo zypper install --force-resolution ./voxd-*-x86_64.rpm   # or the arm64 counterpart if on an ARM device
 ```
 
+---
+
+#### **Gentoo (overlay)**
+
+A community-maintained ebuild lives in the third-party [`deepbadger` overlay](https://github.com/deepbadger/gentoo-overlay) — there is no official binary release for Gentoo, but you can install through Portage:
+
+```bash
+# Add the overlay (one-time, requires app-eselect/eselect-repository)
+sudo eselect repository add deepbadger git https://github.com/deepbadger/gentoo-overlay.git
+sudo emaint sync --repo deepbadger
+
+# Install
+sudo emerge --ask voxd
+```
+
+Refer to the overlay's own README for the exact package atom, USE flags, and any keywording quirks.
+
 #### Alternatively: Download the source or clone the repo, and run the setup:  
 
 ```bash
