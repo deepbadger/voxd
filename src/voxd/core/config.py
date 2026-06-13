@@ -87,7 +87,7 @@ DEFAULT_CONFIG = {
 
     # --- ✨ AIPP (AI post-processing) ------------------------------------------
     "aipp_enabled": False,
-    "aipp_provider": "llamacpp_server",           # ollama / openai / anthropic / xai / gigachat / llamacpp_server
+    "aipp_provider": "llamacpp_server",           # ollama / openai / openrouter / anthropic / xai / gigachat / llamacpp_server / openai_compatible
     "aipp_active_prompt": "default",
 
     # New: List of models per provider
@@ -95,9 +95,11 @@ DEFAULT_CONFIG = {
         "llamacpp_server": ["gemma-3-270m"],
         "ollama": ["llama3.2:latest", "mistral:latest", "gemma3:latest", "qwen2.5-coder:1.5b"],
         "openai": ["gpt-4o-mini-2024-07-18"],
+        "openrouter": ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.1-8b-instruct"],
         "anthropic": ["claude-3-opus-20240229", "claude-3-haiku"],
         "xai": ["grok-3-latest"],
-        "gigachat": ["GigaChat-2-Max", "GigaChat-2-Pro", "GigaChat-2", "GigaChat"]
+        "gigachat": ["GigaChat-2-Max", "GigaChat-2-Pro", "GigaChat-2", "GigaChat"],
+        "openai_compatible": ["custom-model"]
     },
 
     # New: Selected model per provider
@@ -105,10 +107,15 @@ DEFAULT_CONFIG = {
         "llamacpp_server": "qwen2.5-3b-instruct-q4_k_m",
         "ollama": "gemma3:latest",
         "openai": "gpt-4o-mini-2024-07-18",
+        "openrouter": "openai/gpt-4o-mini",
         "anthropic": "claude-3-opus-20240229",
         "xai": "grok-3-latest",
-        "gigachat": "GigaChat-2-Max"
+        "gigachat": "GigaChat-2-Max",
+        "openai_compatible": "custom-model"
     },
+
+    "aipp_openai_compatible_base_url": "",
+    "aipp_openai_compatible_api_key": "",
 
     # GigaChat (Sber) settings
     "gigachat_scope": "GIGACHAT_API_PERS",         # GIGACHAT_API_PERS | GIGACHAT_API_CORP
@@ -245,7 +252,7 @@ class AppConfig:
         check_file(self.whisper_model_path, "Model file")
         check_file(self.whisper_binary, "Whisper binary")
 
-        if self.aipp_provider not in ("ollama", "openai", "anthropic", "xai", "gigachat", "llamacpp_server"):
+        if self.aipp_provider not in ("ollama", "openai", "openrouter", "anthropic", "xai", "gigachat", "llamacpp_server", "openai_compatible"):
             print(f"  ⚠️ Invalid AIPP provider: {self.aipp_provider}")
 
         # typing_delay: allow 0 (→ instant paste) up to 1 s per char
@@ -260,12 +267,19 @@ class AppConfig:
 
         if self.aipp_provider == "openai" and not os.getenv("OPENAI_API_KEY"):
             print("  ⚠️ OPENAI_API_KEY not set in environment.")
+        if self.aipp_provider == "openrouter" and not os.getenv("OPENROUTER_API_KEY"):
+            print("  ⚠️ OPENROUTER_API_KEY not set in environment.")
         if self.aipp_provider == "anthropic" and not os.getenv("ANTHROPIC_API_KEY"):
             print("  ⚠️ ANTHROPIC_API_KEY not set in environment.")
         if self.aipp_provider == "xai" and not os.getenv("XAI_API_KEY"):
             print("  ⚠️ XAI_API_KEY not set in environment.")
         if self.aipp_provider == "gigachat" and not os.getenv("GIGACHAT_CREDENTIALS"):
             print("  ⚠️ GIGACHAT_CREDENTIALS not set in environment.")
+        if self.aipp_provider == "openai_compatible":
+            if not self.data.get("aipp_openai_compatible_base_url"):
+                print("  ⚠️ aipp_openai_compatible_base_url not set in config.")
+            if not self.data.get("aipp_openai_compatible_api_key"):
+                print("  ⚠️ aipp_openai_compatible_api_key not set in config.")
 
         # Validate llama.cpp setup
         if self.aipp_provider in ("llamacpp_server",):
@@ -365,19 +379,32 @@ class AppConfig:
             print(f"\n[config] Invalid aipp_active_prompt '{active}', resetting to 'default'")
             self.data["aipp_active_prompt"] = "default"
 
-        valid_providers = ["ollama", "openai", "anthropic", "xai", "llamacpp_server", "gigachat"]
+        valid_providers = ["ollama", "openai", "openrouter", "anthropic", "xai", "llamacpp_server", "gigachat", "openai_compatible"]
         provider = self.data.get("aipp_provider", "ollama")
         if provider not in valid_providers:
             print(f"\n[config] Invalid aipp_provider '{provider}', resetting to 'ollama'")
             self.data["aipp_provider"] = "ollama"
 
-        # Ensure aipp_models and aipp_selected_models have all providers
+        # Ensure aipp_models and aipp_selected_models have all providers.
+        # A user's config.yaml replaces the whole aipp_models/aipp_selected_models
+        # dicts on load, so providers added in newer versions are missing for
+        # existing installs. Backfill from DEFAULT_CONFIG (not an empty list) so
+        # their model dropdowns aren't blank.
+        default_models = DEFAULT_CONFIG.get("aipp_models", {})
+        default_selected = DEFAULT_CONFIG.get("aipp_selected_models", {})
+        # llamacpp_server is populated separately from the local model dir, so an
+        # empty list there is legitimate; for cloud providers it never is.
         for prov in valid_providers:
-            if prov not in self.data.get("aipp_models", {}):
-                self.data["aipp_models"][prov] = []
-            if prov not in self.data.get("aipp_selected_models", {}):
+            cur = self.data.get("aipp_models", {}).get(prov)
+            if not cur and prov != "llamacpp_server" and default_models.get(prov):
+                self.data["aipp_models"][prov] = list(default_models[prov])
+            elif prov not in self.data.get("aipp_models", {}):
+                self.data["aipp_models"][prov] = list(default_models.get(prov, []))
+            if not self.data.get("aipp_selected_models", {}).get(prov):
+                models = self.data["aipp_models"][prov]
                 self.data["aipp_selected_models"][prov] = (
-                    self.data["aipp_models"][prov][0] if self.data["aipp_models"][prov] else ""
+                    default_selected.get(prov)
+                    or (models[0] if models else "")
                 )
 
     @property

@@ -55,7 +55,7 @@ flux_noise_subtract_enabled: true
 
 # --- ✨ AIPP (AI post-processing) ------------------------------------------
 aipp_enabled: false
-aipp_provider: llamacpp_server
+aipp_provider: llamacpp_server  # ollama / openai / openrouter / anthropic / xai / gigachat / llamacpp_server / openai_compatible
 aipp_active_prompt: default
 
 # List of models per provider
@@ -63,18 +63,25 @@ aipp_models:
   llamacpp_server: ["qwen2.5-3b-instruct-q4_k_m"]
   ollama: ["llama3.2:latest", "mistral:latest", "gemma3:latest", "qwen2.5-coder:1.5b"]
   openai: ["gpt-4o-mini-2024-07-18"]
+  openrouter: ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.1-8b-instruct"]
   anthropic: ["claude-3-opus-20240229", "claude-3-haiku"]
   xai: ["grok-3-latest"]
   gigachat: ["GigaChat-2-Max", "GigaChat-2-Pro", "GigaChat-2", "GigaChat"]
+  openai_compatible: ["custom-model"]
 
 # Selected model per provider
 aipp_selected_models:
   llamacpp_server: "qwen2.5-3b-instruct-q4_k_m"
   ollama: "llama3.2:latest"
   openai: "gpt-4o-mini-2024-07-18"
+  openrouter: "openai/gpt-4o-mini"
   anthropic: "claude-3-opus-20240229"
   xai: "grok-3-latest"
   gigachat: "GigaChat-2-Max"
+  openai_compatible: "custom-model"
+
+aipp_openai_compatible_base_url: ""
+aipp_openai_compatible_api_key: ""
 
 # GigaChat (Sber) settings
 gigachat_scope: GIGACHAT_API_PERS    # or GIGACHAT_API_CORP

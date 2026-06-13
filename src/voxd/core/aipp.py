@@ -34,6 +34,15 @@ def run_aipp(text: str, cfg, prompt_key: str = None) -> str:
                 return run_llamacpp_server_aipp(full_prompt, model)
             elif provider == "openai":
                 return run_openai_aipp(full_prompt, model)
+            elif provider == "openai_compatible":
+                base_url = cfg.data.get("aipp_openai_compatible_base_url", "")
+                api_key = cfg.data.get("aipp_openai_compatible_api_key", "")
+                if not base_url or not api_key:
+                    verr("[aipp] openai_compatible provider requires aipp_openai_compatible_base_url and aipp_openai_compatible_api_key")
+                    return text
+                return run_openai_aipp(full_prompt, model, base_url=base_url, api_key=api_key)
+            elif provider == "openrouter":
+                return run_openrouter_aipp(full_prompt, model)
             elif provider == "anthropic":
                 return run_anthropic_aipp(full_prompt, model)
             elif provider == "xai":
@@ -64,10 +73,10 @@ def run_ollama_aipp(prompt: str, model: str = "llama3.2:latest") -> str:
         raise requests.RequestException(f"Ollama error {response.status_code}: {response.text}")
 
 
-def run_openai_aipp(prompt: str, model: str = "gpt-3.5-turbo") -> str:
-    url = "https://api.openai.com/v1/chat/completions"
+def run_openai_aipp(prompt: str, model: str = "gpt-3.5-turbo", base_url: str = None, api_key: str = None) -> str:
+    url = f"{base_url or 'https://api.openai.com/v1'}/chat/completions"
     headers = {
-        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}",
+        "Authorization": f"Bearer {api_key or os.getenv('OPENAI_API_KEY', '')}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -117,6 +126,31 @@ def run_xai_aipp(prompt: str, model: str = "grok-3") -> str:
         return response.json()["choices"][0]["message"]["content"].strip()
     else:
         raise requests.RequestException(f"XAI error {response.status_code}: {response.text}")
+
+
+def run_openrouter_aipp(prompt: str, model: str = "openai/gpt-4o-mini") -> str:
+    """OpenRouter (OpenAI-compatible API). Key from OPENROUTER_API_KEY.
+
+    OpenRouter recommends the optional HTTP-Referer / X-Title headers so the
+    request is attributed to the app on their dashboards; they are not required.
+    """
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY', '')}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/deepbadger/voxd",
+        "X-Title": "VOXD",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7
+    }
+    response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=20)
+    if response.ok:
+        return response.json()["choices"][0]["message"]["content"].strip()
+    else:
+        raise requests.RequestException(f"OpenRouter error {response.status_code}: {response.text}")
 
 
 def run_llamacpp_server_aipp(prompt: str, model: str = "gemma-3-270m") -> str:
