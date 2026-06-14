@@ -7,6 +7,12 @@ import tempfile
 from voxd.utils.libw import verbo, verr
 
 
+# whisper.cpp's whisper-cli requires 16 kHz mono input and rejects anything
+# else. Many capture devices (bare ALSA) can't open a 16 kHz stream, so we may
+# record at the device's native rate and resample down to this before saving.
+WHISPER_FS = 16000
+
+
 class AudioRecorder:
     def __init__(self, samplerate=16000, channels=1, *, record_chunked: bool | None = None, chunk_seconds: int | None = None):
         from voxd.core.config import AppConfig
@@ -150,13 +156,32 @@ class AudioRecorder:
         verbo(f"[recorder] Saved to {output_path}")
         return output_path
 
+    def _resample_i16(self, pcm: np.ndarray, src_fs: int, dst_fs: int) -> np.ndarray:
+        """Linear-resample mono int16 PCM from src_fs to dst_fs.
+
+        Mirrors the approach used in flux mode. Only used on the fallback path
+        when the device couldn't open a 16 kHz stream; a no-op when rates match.
+        """
+        pcm = np.asarray(pcm).reshape(-1)
+        if src_fs == dst_fs or pcm.size == 0:
+            return pcm.astype(np.int16, copy=False)
+        n_out = int(round(pcm.size * dst_fs / float(src_fs)))
+        if n_out <= 0:
+            return pcm[:0].astype(np.int16)
+        x = np.linspace(0.0, 1.0, pcm.size, endpoint=False)
+        xo = np.linspace(0.0, 1.0, n_out, endpoint=False)
+        y = np.interp(xo, x, pcm.astype(np.float32))
+        return np.clip(np.rint(y), -32768, 32767).astype(np.int16)
+
     def _save_wav(self, data, path):
+        x = np.clip(data, -1.0, 1.0)
+        pcm = (x * 32767.0).astype(np.int16)
+        pcm = self._resample_i16(pcm, self.fs, WHISPER_FS)
         with wave.open(str(path), 'w') as wf:
             wf.setnchannels(self.channels)
             wf.setsampwidth(2)
-            wf.setframerate(self.fs)
-            x = np.clip(data, -1.0, 1.0)
-            wf.writeframes((x * 32767.0).astype(np.int16).tobytes())
+            wf.setframerate(WHISPER_FS)
+            wf.writeframes(pcm.tobytes())
 
     def _open_new_chunk(self):
         self._chunk_index += 1
@@ -175,14 +200,17 @@ class AudioRecorder:
             return
         verbo(f"[recorder] Stitching {len(self._chunk_paths)} chunks → {output_path}")
         try:
+            raw = bytearray()
+            for p in self._chunk_paths:
+                with wave.open(str(p), 'r') as in_wf:
+                    raw += in_wf.readframes(in_wf.getnframes())
+            pcm = np.frombuffer(bytes(raw), dtype=np.int16)
+            pcm = self._resample_i16(pcm, self.fs, WHISPER_FS)
             with wave.open(str(output_path), 'w') as out_wf:
                 out_wf.setnchannels(self.channels)
                 out_wf.setsampwidth(2)
-                out_wf.setframerate(self.fs)
-                for p in self._chunk_paths:
-                    with wave.open(str(p), 'r') as in_wf:
-                        frames = in_wf.readframes(in_wf.getnframes())
-                        out_wf.writeframes(frames)
+                out_wf.setframerate(WHISPER_FS)
+                out_wf.writeframes(pcm.tobytes())
             # Cleanup chunks
             for p in self._chunk_paths:
                 try:
