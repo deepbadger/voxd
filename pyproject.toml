@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "voxd"
-version = "1.7.0+mir.4"  # bump manually on releases (CI overwrites during release builds)
+version = "1.7.0+mir.5"  # bump manually on releases (CI overwrites during release builds)
 description = "Voice-typing helper powered by whisper.cpp"
 authors = [{ name = "Jakov", email = "jakov.iv@proton.me" }]
 requires-python = ">=3.9"
