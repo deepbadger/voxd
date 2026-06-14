@@ -24,6 +24,21 @@ whisper_binary: whisper.cpp/build/bin/whisper-cli
 whisper_model_path: whisper.cpp/models/ggml-base.en.bin
 language: en
 
+# Drop transcripts that consist solely of a known Whisper hallucination
+# (e.g. the "subscribe to my channel" phrases produced on silence/noise).
+hallucination_filter_enabled: true
+hallucination_blocklist:
+  - "Подписывайтесь на мой канал, ставьте лайки и пишите комментарии."
+  - "Подписывайтесь на канал."
+  - "Спасибо за просмотр!"
+  - "Продолжение следует..."
+  - "Субтитры сделал DimaTorzok"
+  - "Субтитры создавал DimaTorzok"
+  - "Редактор субтитров А.Семкин Корректор А.Егорова"
+  - "Thanks for watching!"
+  - "Please subscribe to my channel."
+  - "Like and subscribe."
+
 # --- Flux (VAD-driven continuous dictation) ---------------------------------
 flux_min_silence_ms: 500     # pause to finalize an utterance
 flux_min_speech_ms: 200      # minimum speech before opening a segment

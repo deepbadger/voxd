@@ -7,8 +7,44 @@ from voxd.paths import find_whisper_cli, find_base_model
 from voxd.utils.languages import normalize_lang_code, is_valid_lang
 
 
+# Whisper.cpp occasionally hallucinates "YouTube boilerplate" (subscribe/like
+# phrases from its training data) when fed silence or noise. These helpers let
+# us drop a transcript that consists *solely* of such a known phrase.
+_PUNCT_STRIP = " \t\n.,!?…\"'«»—–-:;()"
+
+
+def _normalize_for_match(text: str) -> str:
+    """Lower-case, collapse whitespace, strip edge punctuation for comparison."""
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text.strip(_PUNCT_STRIP)
+
+
+def is_hallucination(text: str, blocklist) -> bool:
+    """True if ``text`` is entirely one blocklisted phrase (or repeats of one)."""
+    if not text or not blocklist:
+        return False
+    norm = _normalize_for_match(text)
+    if not norm:
+        return False
+    for phrase in blocklist:
+        pnorm = _normalize_for_match(str(phrase))
+        if not pnorm:
+            continue
+        if norm == pnorm:
+            return True
+        # Whisper sometimes repeats the same hallucination back-to-back.
+        # Remove every occurrence of the phrase; if nothing meaningful is
+        # left, the transcript was nothing but repeats of that phrase.
+        remainder = norm.replace(pnorm, "")
+        if not remainder.strip(_PUNCT_STRIP):
+            return True
+    return False
+
+
 class WhisperTranscriber:
-    def __init__(self, model_path, binary_path, delete_input=True, language: str | None = None):
+    def __init__(self, model_path, binary_path, delete_input=True, language: str | None = None,
+                 filter_hallucinations: bool | None = None,
+                 hallucination_blocklist: list[str] | None = None):
         # --- Model path: try config, else auto-discover ---
         if model_path and Path(model_path).is_file():
             self.model_path = model_path
@@ -34,6 +70,20 @@ class WhisperTranscriber:
             verr(f"[transcriber] Invalid language '{language}', using 'en'")
             lang = "en"
         self.language = lang
+
+        # Hallucination filtering (lazily pull defaults from the shared config)
+        if filter_hallucinations is None or hallucination_blocklist is None:
+            try:
+                from voxd.core.config import get_config
+                cfg = get_config()
+                if filter_hallucinations is None:
+                    filter_hallucinations = cfg.data.get("hallucination_filter_enabled", True)
+                if hallucination_blocklist is None:
+                    hallucination_blocklist = cfg.data.get("hallucination_blocklist", [])
+            except Exception:
+                pass
+        self.filter_hallucinations = bool(filter_hallucinations) if filter_hallucinations is not None else True
+        self.hallucination_blocklist = hallucination_blocklist or []
 
         # Warn if likely mismatch with an English-only model
         try:
@@ -102,5 +152,10 @@ class WhisperTranscriber:
         # Strip timestamps like [00:00.000] or (00:00)
         tscript = re.sub(r"\[\d{2}:\d{2}[\.:]\d{3}\]|\(\d{2}:\d{2}\)", "", orig_tscript)
         tscript = re.sub(r"\s+", " ", tscript).strip()
+
+        if self.filter_hallucinations and tscript and \
+           is_hallucination(tscript, self.hallucination_blocklist):
+            verbo(f"[transcriber] Dropped hallucination: {tscript!r}")
+            return "", orig_tscript
 
         return tscript, orig_tscript
