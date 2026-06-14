@@ -50,6 +50,22 @@ DEFAULT_CONFIG = {
     "whisper_model_path": "whisper.cpp/models/ggml-base.en.bin",
     "language": "en",
 
+    # Drop transcripts that consist solely of a known Whisper hallucination
+    # (the "subscribe to my channel" boilerplate it emits on silence/noise).
+    "hallucination_filter_enabled": True,
+    "hallucination_blocklist": [
+        "Подписывайтесь на мой канал, ставьте лайки и пишите комментарии.",
+        "Подписывайтесь на канал.",
+        "Спасибо за просмотр!",
+        "Продолжение следует...",
+        "Субтитры сделал DimaTorzok",
+        "Субтитры создавал DimaTorzok",
+        "Редактор субтитров А.Семкин Корректор А.Егорова",
+        "Thanks for watching!",
+        "Please subscribe to my channel.",
+        "Like and subscribe.",
+    ],
+
     # --- Flux (VAD-driven continuous dictation) ------------------------------
     # Defaults are conservative and CPU-light; Flux VAD is built-in
     # and requires no extra dependencies.

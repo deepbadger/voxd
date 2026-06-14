@@ -82,6 +82,20 @@ class SettingsDialog(QDialog):
         self._add_checkbox(form, "append_trailing_space", "Add trailing space when typing")
 
         # ------------------------------------------------------------------
+        #  Audio input device
+        # ------------------------------------------------------------------
+        form.addRow(self._section_label("Audio Input"), QLabel(""))
+
+        device_combo = QComboBox()
+        self._populate_input_devices(device_combo)
+        device_combo.setToolTip(
+            "Microphone used for recording. \"System default\" follows your "
+            "PulseAudio/PipeWire default."
+        )
+        form.addRow("Input device", device_combo)
+        self._widgets["audio_input_device"] = device_combo
+
+        # ------------------------------------------------------------------
         #  Logging & Performance
         # ------------------------------------------------------------------
         form.addRow(self._section_label("Logging / Performance"), QLabel(""))
@@ -277,6 +291,41 @@ class SettingsDialog(QDialog):
         self._widgets[key] = path_lbl
         return btn
 
+    def _populate_input_devices(self, combo: QComboBox):
+        """Fill ``combo`` with available input devices.
+
+        The combo stores the value to persist in ``audio_input_device`` as
+        item data: an empty string for "System default", otherwise the device
+        name. A previously-configured value that no longer enumerates is kept
+        so saving the dialog never silently drops the user's choice.
+        """
+        combo.clear()
+        combo.addItem("System default", "")
+
+        current = self.cfg.data.get("audio_input_device", "")
+        current_str = "" if current is None else str(current)
+
+        try:
+            import sounddevice as sd
+            seen: set[str] = set()
+            for d in sd.query_devices():
+                if d.get("max_input_channels", 0) > 0:
+                    name = str(d.get("name", "")).strip()
+                    if name and name not in seen:
+                        seen.add(name)
+                        combo.addItem(name, name)
+        except Exception:
+            pass
+
+        if current_str:
+            idx = combo.findData(current_str)
+            if idx < 0:
+                combo.addItem(f"{current_str} (configured)", current_str)
+                idx = combo.findData(current_str)
+            combo.setCurrentIndex(max(0, idx))
+        else:
+            combo.setCurrentIndex(0)
+
     def _populate_models(self, combo: QComboBox, provider: str):
         combo.clear()
         models = self.cfg.get_aipp_models(provider)
@@ -309,6 +358,9 @@ class SettingsDialog(QDialog):
                     val = widget.currentText()
                 elif key == "aipp_selected_model":
                     val = widget.currentText()
+                elif key == "audio_input_device":
+                    data = widget.currentData()
+                    val = "" if data is None else str(data)
                 else:
                     val = widget.currentText()
             else:
