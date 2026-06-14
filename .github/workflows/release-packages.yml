@@ -1,6 +1,12 @@
 name: Release packages
 
 on:
+  # Pushing a tag like v1.4.1 builds and publishes that release automatically.
+  # Tags carrying a pre-release suffix (e.g. v1.5.0-rc1) are marked as a
+  # GitHub prerelease.
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -35,16 +41,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          INPUT_TAG="${{ github.event.inputs.tag }}"
-          if [[ -z "${INPUT_TAG}" || "${INPUT_TAG}" == "latest" ]]; then
-            # Find latest SemVer-ish tag starting with 'v'
-            TAG=$(git tag --list 'v*' | sort -V | tail -n1)
-            if [[ -z "$TAG" ]]; then
-              echo "::error::No tags found matching 'v*'. Push a tag like v1.4.1 or specify a tag manually.";
-              exit 1
-            fi
+          PRERELEASE="false"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Triggered by a tag push: use the pushed tag directly.
+            TAG="${{ github.ref_name }}"
+            # SemVer pre-release suffix (e.g. v1.5.0-rc1) → mark as prerelease.
+            if [[ "$TAG" == *-* ]]; then PRERELEASE="true"; fi
           else
-            TAG="${INPUT_TAG}"
+            INPUT_TAG="${{ github.event.inputs.tag }}"
+            PRERELEASE="${{ github.event.inputs.prerelease }}"
+            if [[ -z "${INPUT_TAG}" || "${INPUT_TAG}" == "latest" ]]; then
+              # Find latest SemVer-ish tag starting with 'v'
+              TAG=$(git tag --list 'v*' | sort -V | tail -n1)
+              if [[ -z "$TAG" ]]; then
+                echo "::error::No tags found matching 'v*'. Push a tag like v1.4.1 or specify a tag manually.";
+                exit 1
+              fi
+            else
+              TAG="${INPUT_TAG}"
+            fi
           fi
           # Validate tag exists
           if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
@@ -55,6 +70,7 @@ jobs:
           CLEAN="${TAG#v}"
           echo "version=$CLEAN" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
 
       - name: Setup Go (for nfpm)
         uses: actions/setup-go@v5
@@ -109,6 +125,7 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
 
   release:
     name: Create GitHub Release and upload assets
@@ -126,7 +143,7 @@ jobs:
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           name: VOXD ${{ needs.build.outputs.tag }}
-          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
           files: |
             dist/**
         env:

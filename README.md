@@ -452,6 +452,28 @@ Tests use isolated XDG dirs and stubbed audio/clipboard backends:
 .venv/bin/python -m pytest -k typer # only the typer tests
 ```
 
+### Cutting a release
+
+`release.sh` tags a release and lets GitHub CI build & publish it in one step:
+
+```bash
+./release.sh 1.5.0            # bump pyproject + commit, push branch, tag v1.5.0, trigger CI
+./release.sh 1.5.0-rc1        # pre-release suffix → published as a GitHub prerelease
+./release.sh 1.5.0 --no-bump  # don't touch pyproject.toml; tag the current commit as-is
+./release.sh 1.5.0 --watch    # also follow the CI run (needs the gh CLI)
+./release.sh 1.5.0 --dry-run  # print the steps without touching git
+```
+
+By default it bumps `version` in `pyproject.toml` to the release version and
+commits it (`chore(release): v1.5.0`) so the tagged commit records the version;
+pass `--no-bump` to skip that. It refuses to run on a dirty tree (override with
+`--allow-dirty`) or if the tag already exists. Pushing the `v*` tag triggers
+[`release-packages.yml`](.github/workflows/release-packages.yml), which builds the
+deb/rpm/archlinux packages + Python sdist and creates the GitHub Release. CI also
+overwrites `pyproject.toml`'s version from the tag during the build, so the tag is
+the ultimate source of truth. You can still trigger a build by hand from the
+Actions tab (`workflow_dispatch`).
+
 ---
 
 ## 📜 License & Credits
